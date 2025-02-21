@@ -32,7 +32,10 @@ def generate_query_sketch(question):
     response = llm(formatted_prompt)
     return response
 
-# Example usage
 question = "List all movies with a tagline containing the word 'Real World'."
 query_sketch = generate_query_sketch(question)
 print(query_sketch)
+
+# TODO
+# load the question datasets
+
