@@ -1,33 +1,49 @@
+import torch
 from torch.utils.data import Dataset
 
 class Text2CypherDataset(Dataset):
-    def __init__(self, dataset_split, tokenizer, max_length=512):
-        self.dataset = dataset_split
+    def __init__(self, dataset_split, tokenizer, max_length=512, use_cuda=True):
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.use_cuda = use_cuda
+
+        self.questions = [data["question"] for data in dataset_split]
+        self.schemas = [data["schema"] for data in dataset_split]
+        self.cypher_queries = [data["cypher"] for data in dataset_split]
+
+        self.tokenized_inputs = self.tokenizer(
+            [f"Question: {q} Schema: {s}" for q, s in zip(self.questions, self.schemas)],
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt"
+        )
+
+        self.tokenized_outputs = self.tokenizer(
+            self.cypher_queries,
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt"
+        )
+
+        if use_cuda and torch.cuda.is_available():
+            self.tokenized_inputs = {k: v.to("cuda") for k, v in self.tokenized_inputs.items()}
+            self.tokenized_outputs = {k: v.to("cuda") for k, v in self.tokenized_outputs.items()}
+
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.questions)
 
     def __getitem__(self, idx):
-        data_point = self.dataset[idx]
-        question = data_point["question"]  # User's natural language question
-        schema = data_point["schema"]  # Database schema details
-        database_reference_alias = data_point["database_reference_alias"] # Database alias name, might be useful in subgraph or cross-domain.
-        cypher_query = data_point["cypher"]  # Target Cypher query
-
-        # Combine question and schema as input
-        input_text = f"Question: {question} Schema: {schema} Database Refenerce Alias: {database_reference_alias}"
-
-        # Tokenize input (question + schema) and output (cypher query)
-        inputs = self.tokenizer(input_text, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt")
-        outputs = self.tokenizer(cypher_query, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt")
-
-        return {
-            "input_ids": inputs["input_ids"].squeeze(0),
-            "attention_mask": inputs["attention_mask"].squeeze(0),
-            "labels": outputs["input_ids"].squeeze(0),
-        }
+       return {
+            "question": self.questions[idx],
+            "schema": self.schemas[idx],
+            "cypher": self.cypher_queries[idx],
+            "input_ids": self.tokenized_inputs["input_ids"][idx],
+            "attention_mask": self.tokenized_inputs["attention_mask"][idx],
+            "labels": self.tokenized_outputs["input_ids"][idx]
+        } 
     
 
 if __name__ == "__main__":
