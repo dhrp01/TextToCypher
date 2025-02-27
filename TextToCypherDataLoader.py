@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 class Text2CypherDataset(Dataset):
     def __init__(self, dataset_split, tokenizer, max_length=512, use_cuda=True):
         self.tokenizer = tokenizer
+        self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_length = max_length
         self.use_cuda = use_cuda
 
