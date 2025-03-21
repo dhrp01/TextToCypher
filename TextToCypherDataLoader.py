@@ -96,6 +96,27 @@ class Text2CypherCasualCollator:
             "labels": labels
         }
 
+# Use for generation of baseline    
+class GenerationCollator:
+    def __init__(self, tokenizer, source_max_len=1024):
+        self.tokenizer = tokenizer
+        self.source_max_len = source_max_len
+        self.pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+    def __call__(self, batch):
+        input_texts = [item["input"] for item in batch]
+
+        tokenized = self.tokenizer(
+            input_texts,
+            padding=True,
+            truncation=True,
+            max_length=self.source_max_len,
+            return_tensors="pt"
+        )
+
+        return tokenized
+
+
     
 
 if __name__ == "__main__":
@@ -109,10 +130,25 @@ if __name__ == "__main__":
     collator = Text2CypherCasualCollator(tokenizer)
 
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=collator)
+    baseline_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=GenerationCollator(tokenizer))
 
     # Sample batch
     for batch in train_loader:
+        print("Training batch:")
         print(batch)
         break
+
+    # Sample baseline batch
+    for batch in baseline_loader:
+        print("Baseline batch:")
+        print(batch)
+        break
+
+    # Validation during training
+    # trainer.evaluate(eval_dataset=val_dataset)
+
+    # # Test after training
+    # trainer.predict(test_dataset=test_dataset)
+
     
     

@@ -29,7 +29,8 @@ METRIC_FUNC_MAPPING = {
     'execution_accuracy': execution_accuracy,
     'psjs': provenance_subgraph_jaccard_similarity,
     'executable': executable,
-    'google_bleu': google_BLEU,
+    'exact_match': exact_match,
+    'bleu_score': bleu_score,
 }
 
 # item: csv row
@@ -40,17 +41,11 @@ def compute_metrics(item, metrics, driver):
         ref_cypher = item['cypher']
         if pred_cypher.endswith('<end_of_turn>'):
             pred_cypher = pred_cypher[:-len('<end_of_turn>')].strip()
-        if m == 'google_bleu':
-            result = METRIC_FUNC_MAPPING[m](
-                pred_cypher=pred_cypher,
-                target_cypher=ref_cypher,
-            )
-        else:
-            result = METRIC_FUNC_MAPPING[m](
-                pred_cypher=pred_cypher,
-                target_cypher=ref_cypher,
-                neo4j_connector=driver,
-            )
+        result = METRIC_FUNC_MAPPING[m](
+            pred_cypher=pred_cypher,
+            target_cypher=ref_cypher,
+            neo4j_connector=driver,
+        )
         item[m] = result
     return item
 
@@ -74,9 +69,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_threads', type=int, default=8)
     # parser.add_argument('--metrics', nargs='+', default=['executable', 'execution_accuracy', 'psjs'])
-    parser.add_argument('--metrics', nargs='+', default=['executable', 'execution_accuracy'])
+    parser.add_argument('--metrics', nargs='+', default=['bleu_score', 'exact_match'])
     parser.add_argument('--metric_for_agg', default='execution_accuracy')
     parser.add_argument('--URI', default='neo4j+s://demo.neo4jlabs.com:7687')
+    parser.add_argument('--target_file_name', default='output.csv', help="Output CSV file relative to work/pi_wenlongzhao_umass_edu/9/")
 
 
     args = parser.parse_args()
@@ -84,45 +80,51 @@ def main():
     print()
     # open csv file
     absolute_path = '/work/pi_wenlongzhao_umass_edu/9/'
-    NEO4J_DATASET = os.path.join(absolute_path, 'bloomberg_project/generate_cypher.csv')
-
+    target_file_name = args.target_file_name
+    NEO4J_DATASET = os.path.join(absolute_path, target_file_name)
     print("CSV Path:", NEO4J_DATASET)
     if os.path.exists(NEO4J_DATASET):
         df = pd.read_csv(NEO4J_DATASET)
         df = df.sort_values(by='database_reference_alias', ascending=True)
+        # df = df[df['database_reference_alias'] == 'neo4jlabs_demo_db_offshoreleaks']
     else:
         print(f"Error: File not found - {NEO4J_DATASET}")
 
     df = df.sort_values(by='database_reference_alias', ascending=True)
     unique_graphs = df['database_reference_alias'].unique()
-
+    # unique_graphs = ['neo4jlabs_demo_db_offshoreleaks', 'neo4jlabs_demo_db_recommendations']
     result_dfs = []
+    failed_connections = []
+    
     for grpah in unique_graphs:
         print(f"Processing grpah: {grpah}")
         df_category = df[df['database_reference_alias'] == grpah].copy()
         graph_name = grpah.replace("neo4jlabs_demo_db_", "")
         # AUTH = (graph_name, graph_name)
-        try:
-            with neo4jGraph(args.URI, graph_name, graph_name) as connector:
-                connector.driver.verify_connectivity()
-                print(f"Connection established in {graph_name} graph.")
-                        # Use ThreadPoolExecutor for multithreading
-            results = []
-            with ThreadPoolExecutor(max_workers=args.num_threads) as executor:
-            # with ThreadPoolExecutor(max_workers=1) as executor:
-                futures = [executor.submit(compute_metrics, row, args.metrics, connector) for _, row in df_category.iterrows()]
-                for future in tqdm(as_completed(futures), total=len(df_category)):
-                    results.append(future.result())
+        # try:    
+        with neo4jGraph(args.URI, graph_name, graph_name) as connector:
+            connector.driver.verify_connectivity()
+            print(f"Connection established in {graph_name} graph.")
+                    # Use ThreadPoolExecutor for multithreading
+        results = []
+        with ThreadPoolExecutor(max_workers=args.num_threads) as executor:
+        # with ThreadPoolExecutor(max_workers=1) as executor:
+            futures = [executor.submit(compute_metrics, row, args.metrics, connector) for _, row in df_category.iterrows()]
+            for future in tqdm(as_completed(futures), total=len(df_category)):
+                results.append(future.result())
             df_results = pd.DataFrame(results)
             result_dfs.append(df_results)
 
-        except Exception as e:
-            print(f"Fail to connect to {graph_name} graph: {e}")
-            continue
+        # except Exception as e:
+        #     print(f"Fail to connect to {graph_name} graph: {e}")
+        #     failed_connections.append(graph_name)
+        #     continue
     if result_dfs:
         final_df = pd.concat(result_dfs, ignore_index=True)
-        final_df.to_csv(os.path.join(absolute_path, 'zek/results.csv'), index=False)
-        print("Results saved to results.csv")
+        evaluated_name = f'{target_file_name}_evaluated'
+        final_df.to_csv(os.path.join(absolute_path, f'zek/{evaluated_name}.csv'), index=False)
+        print(f"Results saved to {evaluated_name}.csv")
+        print(f'failed graph name: {failed_connections}')
         # Convert results back to a DataFrame and update 'age' column
         # df_category = pd.DataFrame(results)
         # result_dfs.append(df_category)
