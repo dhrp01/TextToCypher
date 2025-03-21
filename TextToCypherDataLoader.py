@@ -1,7 +1,10 @@
 from datasets import load_dataset 
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
+import torch
+import copy
 
-
+IGNORE_INDEX = -100
 
 instruction = """Given an input question, convert it to a Cypher query.
         To translate a question into a Cypher query, please follow these steps:
@@ -51,42 +54,48 @@ class Text2CypherDataset(Dataset):
             raise e
     
 
-class Text2CypherCollator:
-    def __init__(self, tokenizer, max_input_length=512, max_output_length=512):
+class Text2CypherCasualCollator:
+    def __init__(self, tokenizer, source_max_length=1024, target_max_lenght=256, train_on_source=False):
         self.tokenizer = tokenizer
-        self.max_input_length = max_input_length
-        self.max_output_length = max_output_length
-        self.pad_token_id = tokenizer.pad_token_id
-        self.eos_token_id = tokenizer.eos_token_id
+        self.source_max_length = source_max_length
+        self.target_max_length = target_max_lenght
+        self.train_on_source = train_on_source
+        self.pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
     def __call__(self, batch):
-        input_texts = [item["input"] for item in batch]
-        output_texts = [item["output"] for item in batch]
+        sources = [f"{self.tokenizer.bos_token}{example['input']}" for example in batch]
+        targets = [f"{example['output']}{self.tokenizer.eos_token}" for example in batch]
 
-        inputs = self.tokenizer(
-            input_texts,
-            max_length=self.max_input_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
+        tokenized_sources = self.tokenizer(
+            sources, max_length=self.source_max_length, truncation=True, add_special_tokens=False
         )
 
-        outputs = self.tokenizer(
-            output_texts,
-            max_length=self.max_output_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt"
+        tokenized_targets = self.tokenizer(
+            targets, max_length=self.target_max_length, truncation=True, add_special_tokens=False
         )
 
-        labels = outputs["input_ids"].clone()
-        labels[labels == self.pad_token_id] = -100
+        input_ids, labels = [], []
+
+        for src_ids, tgt_ids in zip(tokenized_sources["input_ids"], tokenized_targets["input_ids"]):
+            full_input = src_ids + tgt_ids
+            input_ids.append(torch.tensor(full_input))
+
+            if self.train_on_source:
+                full_label = copy.deepcopy(full_input)
+            else:
+                full_label = [IGNORE_INDEX] * len(src_ids) + copy.deepcopy(tgt_ids)
+
+            labels.append(torch.tensor(full_label))
+        
+        input_ids = pad_sequence(input_ids, batch_first=True, padding_value=self.pad_token_id)
+        labels = pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
 
         return {
-            "input_ids": inputs["input_ids"],
-            "attention_mask": inputs["attention_mask"],
+            "input_ids": input_ids,
+            "attention_mask": input_ids.ne(self.pad_token_id),
             "labels": labels
         }
+
     
 
 if __name__ == "__main__":
@@ -97,7 +106,7 @@ if __name__ == "__main__":
 
     tokenizer = T5Tokenizer.from_pretrained("t5-small")
     train_dataset = Text2CypherDataset(dataset["train"])
-    collator = Text2CypherCollator(tokenizer)
+    collator = Text2CypherCasualCollator(tokenizer)
 
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=collator)
 
