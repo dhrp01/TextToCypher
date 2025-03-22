@@ -1,8 +1,10 @@
+import os
 from datasets import load_dataset 
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 import torch
 import copy
+import pandas as pd
 
 IGNORE_INDEX = -100
 
@@ -115,8 +117,34 @@ class GenerationCollator:
         )
 
         return tokenized
+    
+
+def load_text2cypher_test_dataset():
+    absolute_path = '/work/pi_wenlongzhao_umass_edu/9/'
+    NEO4J_DATASET = os.path.join(absolute_path, 'neo4j_dataset/text2cypher-2024v1/data/test-00000-of-00001.parquet')
+    print("Test CSV Path:", NEO4J_DATASET)
+
+    if os.path.exists(NEO4J_DATASET):
+        df = pd.read_parquet(NEO4J_DATASET, engine='pyarrow')
+        print(df.head())
+    else:
+        print(f"Error: File not found - {NEO4J_DATASET}")
+
+    return Dataset.from_pandas(df)
 
 
+def load_text2cypher_train_dataset():
+    absolute_path = '/work/pi_wenlongzhao_umass_edu/9/'
+    NEO4J_DATASET = os.path.join(absolute_path, 'neo4j_dataset/text2cypher-2024v1/data/train-00000-of-00001.parquet')
+    print("Train CSV Path:", NEO4J_DATASET)
+
+    if os.path.exists(NEO4J_DATASET):
+        df = pd.read_parquet(NEO4J_DATASET, engine='pyarrow')
+        print(df.head())
+    else:
+        print(f"Error: File not found - {NEO4J_DATASET}")
+
+    return Dataset.from_pandas(df)
     
 
 if __name__ == "__main__":
